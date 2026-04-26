@@ -47,7 +47,7 @@ export default function SignInPage() {
         permissions: res.permissions,
         expiresAt: res.expiresAt,
       })
-      router.push('/coming-soon')
+      router.push('/dashboard')
     } catch (e) {
       const msg =
         e instanceof ApiError ? e.message : 'Sign-in failed. Check your credentials.'
