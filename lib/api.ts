@@ -23,6 +23,36 @@ type FetchOpts = Omit<RequestInit, 'body'> & {
   body?: BodyInit | Record<string, unknown> | null
   query?: Record<string, string | number | boolean | null | undefined>
   bearerToken?: string | null
+  tenantId?: string | null
+}
+
+/**
+ * Reads the access token from the session cookie set after sign-in.
+ * Browser-only — server-side callers should pass `bearerToken` explicitly.
+ */
+export function readBearerFromSession(): string | null {
+  if (typeof document === 'undefined') return null
+  const raw = document.cookie
+    .split('; ')
+    .find((c) => c.startsWith('aspra_session='))
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(decodeURIComponent(raw.slice('aspra_session='.length))) as {
+      accessToken?: string
+    }
+    return parsed.accessToken ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Generic paginated envelope returned by Aspra list endpoints.
+ */
+export type Paginated<T> = {
+  items: T[]
+  nextCursor: string | null
+  total?: number
 }
 
 function buildUrl(path: string, query?: FetchOpts['query']) {
@@ -40,11 +70,13 @@ export async function apiFetch<T = unknown>(
   path: string,
   opts: FetchOpts = {},
 ): Promise<T> {
-  const { body, query, bearerToken, headers: extraHeaders, ...rest } = opts
+  const { body, query, bearerToken, tenantId, headers: extraHeaders, ...rest } = opts
 
   const headers = new Headers(extraHeaders)
   headers.set('Accept', 'application/json')
-  if (bearerToken) headers.set('Authorization', `Bearer ${bearerToken}`)
+  const token = bearerToken ?? (typeof document !== 'undefined' ? readBearerFromSession() : null)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  if (tenantId) headers.set('X-Tenant-Id', tenantId)
 
   let payload: BodyInit | undefined
   if (body !== undefined && body !== null) {
