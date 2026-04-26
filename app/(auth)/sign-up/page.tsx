@@ -16,7 +16,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { CATEGORIES } from '@/lib/categories'
-import { API_BASE_URL } from '@/lib/api'
+import { apiFetch, ApiError } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 const VOLUMES = ['<10k', '10k–100k', '100k–1M', '1M–10M', '10M+'] as const
@@ -53,9 +53,21 @@ const stepFields: Array<Array<keyof FormValues>> = [
 
 const stepTitles = ['Your organisation', 'Primary contact', 'Use case', 'Confirm']
 
+// Backend volume buckets — keep in sync with the zod enum on
+// `POST /v1/public/auth/register`. The form labels above use a non-ASCII
+// dash for readability; the API expects ASCII hyphens.
+const VOLUME_TO_API: Record<(typeof VOLUMES)[number], string> = {
+  '<10k': '<10k',
+  '10k–100k': '10k-100k',
+  '100k–1M': '100k-1M',
+  '1M–10M': '1M-10M',
+  '10M+': '10M+',
+}
+
 export default function SignUpPage() {
   const router = useRouter()
   const [step, setStep] = React.useState(0)
+  const [submitError, setSubmitError] = React.useState<string | null>(null)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -80,15 +92,36 @@ export default function SignUpPage() {
   }
 
   const onSubmit = form.handleSubmit(async (values) => {
-    // TODO(phase 2): POST to `${API_BASE_URL}/v1/public/auth/register` once
-    // the backend endpoint exists. For now we log the payload and bounce to
-    // the success screen so the form is exercisable end-to-end.
-    // eslint-disable-next-line no-console
-    console.info('[kapi sign-up] submission payload (TODO POST):', {
-      target: `${API_BASE_URL}/v1/public/auth/register`,
-      values,
-    })
-    router.push('/sign-up/thanks')
+    setSubmitError(null)
+    try {
+      await apiFetch('/v1/public/auth/register', {
+        method: 'POST',
+        body: {
+          companyName: values.companyName,
+          country: values.country,
+          website: values.website || undefined,
+          expectedVolume: VOLUME_TO_API[values.expectedVolume],
+          categories: values.categories,
+          useCase: values.useCase,
+          contactName: values.contactName,
+          contactEmail: values.contactEmail,
+          contactPhone: values.contactPhone || undefined,
+          acceptTerms: values.acceptTerms,
+          acceptMarketing: false,
+        },
+      })
+      router.push('/sign-up/thanks')
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.status === 429
+            ? 'Too many applications from this network. Please try again later.'
+            : e.status === 400
+              ? 'Some fields look invalid. Please review your answers and try again.'
+              : `Sorry, something went wrong (${e.status}). Please try again.`
+          : 'Network error — please check your connection and retry.'
+      setSubmitError(msg)
+    }
   })
 
   return (
@@ -239,6 +272,15 @@ export default function SignUpPage() {
                   )}
                 />
               </Field>
+            </div>
+          )}
+
+          {submitError && (
+            <div
+              role="alert"
+              className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            >
+              {submitError}
             </div>
           )}
 
